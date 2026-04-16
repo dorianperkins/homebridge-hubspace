@@ -1,6 +1,6 @@
 {
   "displayName": "Homebridge Hubspace",
-  "name": "@dorianperkins/homebridge-hubspace",
+  "name": "homebridge-hubspace",
   "version": "2.1",
   "description": "Homebridge plugin for controlling Hubspace accessories.",
   "homepage": "https://github.com/dorianperkins/homebridge-hubspace#readme",
