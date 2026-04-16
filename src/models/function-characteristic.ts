@@ -6,5 +6,6 @@ export enum FunctionCharacteristic{
     Power,
     FanSpeed,
     Brightness,
-    ColorRgb
+    ColorRgb,
+    Toggle
 }

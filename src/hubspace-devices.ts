@@ -51,5 +51,15 @@ export const Devices: DeviceDef[] = [
                 characteristic: FunctionCharacteristic.Power
             }
         ]
+    },
+    {
+        deviceClass: 'landscape-transformer',
+        deviceType: DeviceType.LandscapeTransformer,
+        functions: [
+            {
+                functionClass: 'toggle',
+                characteristic: FunctionCharacteristic.Toggle
+            }
+        ]
     }
 ];
