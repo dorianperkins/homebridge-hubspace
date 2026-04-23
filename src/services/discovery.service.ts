@@ -4,7 +4,7 @@ import { DeviceResponse } from '../responses/devices-response';
 import { PLATFORM_NAME, PLUGIN_NAME } from '../settings';
 import { Endpoints } from '../api/endpoints';
 import { createHttpClientWithBearerInterceptor } from '../api/http-client-factory';
-import { getDeviceTypeForKey } from '../models/device-type';
+import { DeviceType, getDeviceTypeForKey } from '../models/device-type';
 import { Device } from '../models/device';
 import { createAccessoryForDevice } from '../accessories/device-accessory-factory';
 import { AxiosError } from 'axios';
@@ -99,9 +99,26 @@ export class DiscoveryService{
             const response = await this._httpClient
                 .get<DeviceResponse[]>(`accounts/${this._platform.accountService.accountId}/metadevices`);
 
-            // Get only leaf devices with type of 'device'
-            return response.data
-                .filter(d => d.children.length === 0 && d.typeId === 'metadevice.device')
+            const allDevices = response.data;
+
+            // Landscape transformers are parent devices whose children represent zones.
+            // Process the transformer directly (for its zone functions) and skip the zone
+            // child entries so we don't register them a second time as standalone devices.
+            const transformerChildIds = new Set<string>(
+                allDevices
+                    .filter(d =>
+                        getDeviceTypeForKey(d.description?.device?.deviceClass) === DeviceType.LandscapeTransformer &&
+                        d.children.length > 0
+                    )
+                    .flatMap(d => d.children.map(c => c.id))
+            );
+
+            return allDevices
+                .filter(d =>
+                    d.typeId === 'metadevice.device' &&
+                    !transformerChildIds.has(d.id) &&
+                    (d.children.length === 0 || getDeviceTypeForKey(d.description?.device?.deviceClass) === DeviceType.LandscapeTransformer)
+                )
                 .map(this.mapDeviceResponseToModel.bind(this))
                 .filter(d => d.length > 0)
                 .flat();
@@ -129,9 +146,7 @@ export class DiscoveryService{
                 exisingDevice.functions.push(supportedFc);
             }else{
                 // Otherwise create a new device for it
-                const defaultName = response.friendlyName;
-                const nameQualifier = supportedFc.functionInstance ?? devices.length;
-                const newName = devices.some(d => d.name === defaultName) ? `${defaultName} (${nameQualifier})` : defaultName;
+                const newName = this.getDeviceName(response, supportedFc.functionInstance, devices);
 
                 // Make sure UUID is generated as many times as there are 'virtual' devices for each device
                 // because they all have the same device ID
@@ -150,6 +165,36 @@ export class DiscoveryService{
         }
 
         return devices;
+    }
+
+    /**
+     * Resolves the display name for a device being registered.
+     * For landscape transformers that have zone children, uses the matching child's
+     * friendlyName so HomeKit shows the user's custom zone name. Falls back to the
+     * parent device's friendlyName with a zone qualifier for other devices or when
+     * no child name is available.
+     */
+    private getDeviceName(response: DeviceResponse, functionInstance: string | undefined, existingDevices: Device[]): string {
+        const deviceType = getDeviceTypeForKey(response.description.device.deviceClass);
+        const defaultName = response.friendlyName;
+
+        if (deviceType === DeviceType.LandscapeTransformer && response.children.length > 0) {
+            // functionInstance is typically "zone-1", "zone-2", etc.
+            if (functionInstance) {
+                const match = functionInstance.match(/zone-(\d+)/i);
+                if (match) {
+                    const zoneIndex = parseInt(match[1], 10) - 1;
+                    const childName = response.children[zoneIndex]?.friendlyName;
+                    if (childName) return childName;
+                }
+            }
+            // Index-based fallback when functionInstance doesn't follow the zone-N pattern
+            const childName = response.children[existingDevices.length]?.friendlyName;
+            if (childName) return childName;
+        }
+
+        const qualifier = functionInstance ?? existingDevices.length;
+        return existingDevices.some(d => d.name === defaultName) ? `${defaultName} (${qualifier})` : defaultName;
     }
 
     /**
