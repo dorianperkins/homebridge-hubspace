@@ -20,5 +20,5 @@ export interface AferoErrorResponse{
 export function isAferoError(error: any): error is AferoErrorResponse{
     if(error === null || typeof error !== 'object') return false;
 
-    return isNullOrUndefined(error.timestamp, error.status, error.status_description, error.path);
+    return !isNullOrUndefined(error.timestamp, error.status, error.error_description, error.path);
 }
