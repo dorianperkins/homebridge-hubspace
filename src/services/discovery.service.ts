@@ -119,7 +119,7 @@ export class DiscoveryService{
                     !transformerChildIds.has(d.id) &&
                     (d.children.length === 0 || getDeviceTypeForKey(d.description?.device?.deviceClass) === DeviceType.LandscapeTransformer)
                 )
-                .map(this.mapDeviceResponseToModel.bind(this))
+                .map(d => this.mapDeviceResponseToModel(d, allDevices))
                 .filter(d => d.length > 0)
                 .flat();
         }catch(ex){
@@ -128,7 +128,7 @@ export class DiscoveryService{
         }
     }
 
-    private mapDeviceResponseToModel(response: DeviceResponse): Device[]{
+    private mapDeviceResponseToModel(response: DeviceResponse, allDevices: DeviceResponse[]): Device[]{
         const type = getDeviceTypeForKey(response.description.device.deviceClass);
         const deviceDef = Devices.find(d => d.deviceType === type);
 
@@ -146,7 +146,7 @@ export class DiscoveryService{
                 exisingDevice.functions.push(supportedFc);
             }else{
                 // Otherwise create a new device for it
-                const newName = this.getDeviceName(response, supportedFc.functionInstance, devices);
+                const newName = this.getDeviceName(response, supportedFc.functionInstance, devices, allDevices);
 
                 // Make sure UUID is generated as many times as there are 'virtual' devices for each device
                 // because they all have the same device ID
@@ -174,27 +174,37 @@ export class DiscoveryService{
      * parent device's friendlyName with a zone qualifier for other devices or when
      * no child name is available.
      */
-    private getDeviceName(response: DeviceResponse, functionInstance: string | undefined, existingDevices: Device[]): string {
+    private getDeviceName(
+        response: DeviceResponse,
+        functionInstance: string | undefined,
+        existingDevices: Device[],
+        allDevices: DeviceResponse[]
+    ): string {
         const deviceType = getDeviceTypeForKey(response.description.device.deviceClass);
         const defaultName = response.friendlyName;
 
         if (deviceType === DeviceType.LandscapeTransformer && response.children.length > 0) {
             // functionInstance is typically "zone-1", "zone-2", etc.
-            if (functionInstance) {
-                const match = functionInstance.match(/zone-(\d+)/i);
-                if (match) {
-                    const zoneIndex = parseInt(match[1], 10) - 1;
-                    const childName = response.children[zoneIndex]?.friendlyName;
-                    if (childName) return childName;
-                }
-            }
+            let childRef = functionInstance?.match(/zone-(\d+)/i) &&
+                response.children[parseInt(functionInstance.match(/zone-(\d+)/i)![1], 10) - 1];
+
             // Index-based fallback when functionInstance doesn't follow the zone-N pattern
-            const childName = response.children[existingDevices.length]?.friendlyName;
-            if (childName) return childName;
+            if (!childRef) childRef = response.children[existingDevices.length];
+
+            // `response.children` only holds stub references (no friendlyName populated).
+            // The full record - including the user's custom zone name - lives as its own
+            // top-level entry in the metadevices response, so resolve it there.
+            if (childRef) {
+                const resolvedChild = childRef;
+                const childName = allDevices.find(d => d.id === resolvedChild.id)?.friendlyName || resolvedChild.friendlyName;
+                if (childName) return childName;
+            }
         }
 
+        // HomeKit's Name characteristic must start and end with a letter or number, so avoid
+        // wrapping the qualifier in parentheses (a trailing ')' makes HAP-NodeJS hide the accessory).
         const qualifier = functionInstance ?? existingDevices.length;
-        return existingDevices.some(d => d.name === defaultName) ? `${defaultName} (${qualifier})` : defaultName;
+        return existingDevices.some(d => d.name === defaultName) ? `${defaultName} ${qualifier}` : defaultName;
     }
 
     /**
